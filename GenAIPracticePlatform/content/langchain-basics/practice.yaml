@@ -1,0 +1,146 @@
+# A tiny, fully-runnable intro: LCEL chains + a LangGraph state machine.
+# Everything runs in Mock mode with no API key (get_chat_model(MODE) returns a
+# local model). Switch to OpenAI or Claude mode to use a real LLM.
+
+lab_id: langchain-basics
+title: LangChain & LangGraph Basics
+requires:
+  - langchain_core
+  - langgraph
+notes: >
+  Mock mode uses a local chat model, so every task here runs offline. These are
+  deliberately small - the point is to see a chain and a graph actually execute.
+
+tasks:
+  - id: 1
+    title: Your first LCEL chain
+    prompt: |
+      Build the classic LangChain Expression Language pipeline:
+      **prompt | model | output parser**, then `invoke` it.
+      Use `get_chat_model(MODE)` for the model.
+    hints:
+      - "`from langchain_core.prompts import ChatPromptTemplate`"
+      - "`from langchain_core.output_parsers import StrOutputParser`"
+      - "`chain = prompt | get_chat_model(MODE) | StrOutputParser()` then `chain.invoke({...})`"
+    starter: |
+      # Task 1 - prompt | model | parser
+      from langchain_core.prompts import ChatPromptTemplate
+      from langchain_core.output_parsers import StrOutputParser
+
+      prompt = ChatPromptTemplate.from_template(
+          "Context: {context}\nQuestion: {question}\nAnswer:"
+      )
+      # TODO: chain = prompt | get_chat_model(MODE) | StrOutputParser()
+      # TODO: print(chain.invoke({"context": "The sky is blue.", "question": "What colour is the sky?"}))
+    solution: |
+      from langchain_core.prompts import ChatPromptTemplate
+      from langchain_core.output_parsers import StrOutputParser
+
+      prompt = ChatPromptTemplate.from_template(
+          "Context: {context}\nQuestion: {question}\nAnswer:"
+      )
+      chain = prompt | get_chat_model(MODE) | StrOutputParser()
+
+      result = chain.invoke(
+          {"context": "The sky is blue. Grass is green.",
+           "question": "What colour is the sky?"}
+      )
+      print("chain output:", result)
+    checks:
+      - {id: prompt, points: 3, pattern: "ChatPromptTemplate\\.from_template", desc: "builds a prompt template"}
+      - {id: parser, points: 2, pattern: "StrOutputParser\\s*\\(\\s*\\)", desc: "adds StrOutputParser()"}
+      - {id: pipe,   points: 3, pattern: "prompt\\s*\\|\\s*get_chat_model\\s*\\(\\s*MODE\\s*\\)\\s*\\|\\s*StrOutputParser", desc: "prompt | model | parser"}
+      - {id: invoke, points: 2, pattern: "chain\\.invoke\\s*\\(", desc: "invokes the chain"}
+
+  - id: 2
+    title: Structure the output with RunnableParallel
+    prompt: |
+      Make a chain that returns a dict with two keys computed in parallel:
+      `upper` (the question upper-cased) and `answer` (the model's reply).
+      Use a plain function for `upper` and your Task-1 chain for `answer`.
+    hints:
+      - "`from langchain_core.runnables import RunnableLambda, RunnableParallel`"
+      - "`RunnableParallel(upper=RunnableLambda(lambda x: x['question'].upper()), answer=chain)`"
+      - "`.invoke({\"context\": ..., \"question\": ...})` returns the dict."
+    starter: |
+      # Task 2 - RunnableParallel (reuses `chain` from Task 1)
+      from langchain_core.runnables import RunnableLambda, RunnableParallel
+      # TODO: build `graph = RunnableParallel(upper=..., answer=chain)`
+      # TODO: print(graph.invoke({"context": "Paris is the capital of France.",
+      #                           "question": "What is the capital of France?"}))
+    solution: |
+      from langchain_core.runnables import RunnableLambda, RunnableParallel
+
+      graph = RunnableParallel(
+          upper=RunnableLambda(lambda x: x["question"].upper()),
+          answer=chain,
+      )
+      out = graph.invoke(
+          {"context": "Paris is the capital of France.",
+           "question": "What is the capital of France?"}
+      )
+      print(out)
+    checks:
+      - {id: parallel, points: 4, pattern: "RunnableParallel\\s*\\(", desc: "uses RunnableParallel"}
+      - {id: lambda,   points: 3, pattern: "RunnableLambda\\s*\\(", desc: "wraps a function with RunnableLambda"}
+      - {id: invoke,   points: 3, pattern: "\\.invoke\\s*\\(\\s*\\{", desc: "invokes with an input dict"}
+
+  - id: 3
+    title: A LangGraph state machine
+    prompt: |
+      Build a 2-node LangGraph: node **classify** tags the question as `factual`
+      or `other`; node **respond** calls the model. Wire
+      `START -> classify -> respond -> END` and `invoke` it.
+    hints:
+      - "`from langgraph.graph import StateGraph, START, END` and `from typing import TypedDict`."
+      - "State = `TypedDict('S', {'question': str, 'kind': str, 'answer': str})`; each node returns a partial dict."
+      - "`g = StateGraph(S); g.add_node('classify', ...); g.add_edge(START, 'classify'); ...; app = g.compile()`."
+    starter: |
+      # Task 3 - LangGraph
+      from typing import TypedDict
+      from langgraph.graph import StateGraph, START, END
+
+      class S(TypedDict):
+          question: str
+          kind: str
+          answer: str
+
+      def classify(state):
+          # TODO: return {"kind": "factual" if state["question"].strip().endswith("?") else "other"}
+          ...
+
+      def respond(state):
+          # TODO: use get_chat_model(MODE).invoke(state["question"]).content
+          ...
+
+      # TODO: build the graph: add_node x2, add_edge START->classify->respond->END, compile, invoke
+    solution: |
+      from typing import TypedDict
+      from langgraph.graph import StateGraph, START, END
+
+      class S(TypedDict):
+          question: str
+          kind: str
+          answer: str
+
+      def classify(state):
+          return {"kind": "factual" if state["question"].strip().endswith("?") else "other"}
+
+      def respond(state):
+          reply = get_chat_model(MODE).invoke(state["question"]).content
+          return {"answer": f"[{state['kind']}] {reply}"}
+
+      g = StateGraph(S)
+      g.add_node("classify", classify)
+      g.add_node("respond", respond)
+      g.add_edge(START, "classify")
+      g.add_edge("classify", "respond")
+      g.add_edge("respond", END)
+      app = g.compile()
+
+      print(app.invoke({"question": "What is the standard notice period?"}))
+    checks:
+      - {id: import,  points: 3, pattern: "from\\s+langgraph\\.graph\\s+import[\\s\\S]*StateGraph", desc: "imports StateGraph/START/END"}
+      - {id: nodes,   points: 3, pattern: "add_node\\s*\\(\\s*[\"']classify[\"'][\\s\\S]*add_node\\s*\\(\\s*[\"']respond[\"']", desc: "adds both nodes"}
+      - {id: edges,   points: 2, pattern: "add_edge\\s*\\(\\s*START", desc: "wires START -> classify"}
+      - {id: compile, points: 2, pattern: "\\.compile\\s*\\(\\s*\\)[\\s\\S]*\\.invoke\\s*\\(", desc: "compiles and invokes the graph"}
