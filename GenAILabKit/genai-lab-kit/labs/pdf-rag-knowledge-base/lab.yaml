@@ -1,0 +1,72 @@
+# Lab manifest - read by the platform to list, provision, and grade this lab.
+id: pdf-rag-knowledge-base
+title: PDF-Based Knowledge Base RAG System
+track: genai            # genai | agentic-ai
+difficulty: beginner    # beginner | intermediate | advanced
+duration_minutes: 90
+summary: >
+  Build a Retrieval-Augmented Generation app that answers questions about a PDF
+  using only that document's content: PyPDFLoader -> chunking -> OpenAI embeddings
+  -> ChromaDB -> retrieval -> GPT-4o-mini -> grounded answer with source pages.
+
+stack:
+  language: python
+  python: "3.10"          # 3.10 or 3.11
+  ide: [jupyter, vscode]
+  services:
+    - openai              # vendor-managed key, chat + embeddings
+
+models:
+  chat: gpt-4o-mini
+  embeddings: text-embedding-3-small
+
+parameters:
+  chunk_size: 1000
+  chunk_overlap: 200
+  retrieval_k: 3
+  temperature: 0
+  refusal_text: "I could not find the answer in the provided document."
+
+entrypoints:
+  participant_notebook: 02_STARTER_CODE/participant_notebook.ipynb
+  solution_notebook: 03_SOLUTION_GUIDE/solution_notebook.ipynb
+  participant_app: 02_STARTER_CODE/rag_app.py
+  solution_app: 03_SOLUTION_GUIDE/rag_app.py
+
+data:
+  - 04_DATA/sample_knowledge_base.pdf   # the only knowledge source
+  - 04_DATA/RAG_Question_Set.pdf        # validation questions - NOT a source document
+
+config:
+  env_example: 05_CONFIG/.env.example
+  requirements: 05_CONFIG/requirements.txt
+  secrets:
+    - name: OPENAI_API_KEY
+      managed_by: vendor
+      note: never place in participant solution-sharing area
+
+scripts:
+  preflight: scripts/setup_check.py
+  validate: scripts/validate_solution.py
+
+tasks:
+  - id: 1
+    area: PDF loading
+    goal: Load the PDF with PyPDFLoader and inspect pages + metadata.
+  - id: 2
+    area: Chunking
+    goal: Fixed-size chunking, chunk_size=1000, chunk_overlap=200.
+  - id: 3
+    area: Embeddings + ChromaDB
+    goal: Embed with text-embedding-3-small, persist to Chroma, similarity search.
+  - id: 4
+    area: RAG QA
+    goal: Retrieve top-k, build context, grounded answer via GPT-4o-mini + sources.
+  - id: 5
+    area: Interactive app
+    goal: Combine tasks 1-4 into rag_app.py with an interactive question loop.
+
+validation:
+  grounded_questions_source: 04_DATA/RAG_Question_Set.pdf
+  must_refuse_out_of_context: true
+  must_cite_source_pages: true

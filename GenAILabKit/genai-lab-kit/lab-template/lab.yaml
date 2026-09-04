@@ -1,0 +1,52 @@
+# Lab manifest - the platform reads this to list, provision and grade the lab.
+# Fill every <...> placeholder. Delete lines that don't apply.
+id: <kebab-case-id>                 # must match the folder name under labs/
+title: <Human Readable Title>
+track: genai                        # genai | agentic-ai
+difficulty: beginner               # beginner | intermediate | advanced
+duration_minutes: 90
+summary: >
+  <2-3 sentences: what the participant builds and the pipeline they use.>
+
+stack:
+  language: python
+  python: "3.10"
+  ide: [jupyter, vscode]
+  services:
+    - openai                       # or: none, anthropic, local-ollama, ...
+
+models:
+  chat: gpt-4o-mini                # remove if not an LLM lab
+  embeddings: text-embedding-3-small
+
+parameters: {}                     # any fixed knobs graders depend on
+
+entrypoints:
+  participant_notebook: 02_STARTER_CODE/participant_notebook.ipynb
+  solution_notebook: 03_SOLUTION_GUIDE/solution_notebook.ipynb
+  # participant_app: 02_STARTER_CODE/app.py
+  # solution_app: 03_SOLUTION_GUIDE/app.py
+
+data: []                           # e.g. [04_DATA/corpus.pdf]
+
+config:
+  env_example: 05_CONFIG/.env.example
+  requirements: 05_CONFIG/requirements.txt
+  secrets:
+    - name: OPENAI_API_KEY
+      managed_by: vendor
+
+scripts:
+  preflight: scripts/setup_check.py
+  validate: scripts/validate_solution.py
+
+tasks:
+  - id: 1
+    area: <area>
+    goal: <one line>
+  - id: 2
+    area: <area>
+    goal: <one line>
+
+validation:
+  notes: <what "correct" means; what the grader asserts>

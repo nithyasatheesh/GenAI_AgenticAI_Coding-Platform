@@ -1,0 +1,10 @@
+# Every package this lab needs, pinned to a minor range.
+# The VM vendor installs this before participant access.
+# `tools/aggregate_requirements.py` merges this across all labs into the VM image.
+
+python-dotenv>=1,<2
+ipykernel>=6,<7
+
+# --- add lab-specific packages below ---
+# langchain>=0.3,<0.4
+# langchain-openai>=0.2,<0.4
