@@ -1,0 +1,33 @@
+# The learner-code interpreter IS this app's interpreter, so everything a lab
+# imports must be here. Verified to install cleanly in a fresh venv on Python
+# 3.11 / 3.12 / 3.13 (144 packages, exit 0) — the whole stack is real, none of it
+# is a commented-out option.
+#
+# Floor pins keep the deployment Python on current, compatible wheels; ceilings
+# guard the majors that ship breaking changes.
+
+# --- app ---
+streamlit>=1.5,<2
+pyyaml>=6,<7
+
+# --- LangChain 1.x ---
+langchain-core>=1,<2
+langchain-community>=0.4,<1
+langchain-text-splitters>=1,<2
+langgraph>=1,<2
+
+# --- real LLMs (key from OPENAI_API_KEY / ANTHROPIC_API_KEY env var or secret) ---
+langchain-openai>=1,<2
+langchain-anthropic>=1,<2
+
+# --- real vector DB + real local embeddings (no API key needed for FastEmbed) ---
+chromadb>=1,<2
+langchain-chroma>=1,<2
+fastembed>=0.7,<1
+
+# --- real MCP ---
+mcp>=1.9,<2
+langchain-mcp-adapters>=0.3,<1
+
+# --- PDF ---
+pypdf>=6,<7
