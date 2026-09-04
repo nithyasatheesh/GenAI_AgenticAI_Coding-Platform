@@ -1,0 +1,27 @@
+# Installed into the SAME Python environment that runs `streamlit run streamlit_app.py`.
+# The Run button executes learner code in that interpreter, so every import below
+# is available to exercises. Streamlit Community Cloud installs this file at build
+# time; locally, `pip install -r requirements.txt` into your venv.
+#
+# Pins are major-version floors + ceilings: LangChain is on 1.x. A future 2.x can
+# carry breaking changes, so we cap it and bump deliberately.
+
+# --- app ---
+streamlit>=1.36,<2
+pyyaml>=6,<7
+python-dotenv>=1,<2
+
+# --- LangChain 1.x stack (used by the exercises) ---
+langchain>=1,<2
+langchain-core>=1,<2
+langchain-community>=0.4,<1
+langchain-text-splitters>=1,<2
+langchain-openai>=1,<2              # Real LLM mode only (needs OPENAI_API_KEY)
+
+# --- vector store + docs ---
+langchain-chroma>=1,<2
+chromadb>=1,<2
+pypdf>=4,<6
+
+# --- agentic ---
+langgraph>=1,<2

@@ -1,0 +1,208 @@
+# Drives streamlit_app.py. Each task: prompt + hints + starter + solution + checks.
+# "Run" concatenates Task 1..N and executes them for REAL in the app's interpreter,
+# after a preamble that provides:  MODE, SAMPLE_PDF, get_chat_model(MODE),
+# get_embeddings(MODE), make_vectorstore(chunks, embeddings), load_sample_docs().
+
+lab_id: pdf-rag-knowledge-base
+title: PDF Knowledge Base RAG
+requires:                       # checked before Run; must be importable in the app env
+  - langchain
+  - langchain_core
+  - langchain_community
+  - langchain_text_splitters
+  - langchain_chroma
+  - chromadb
+  - pypdf
+notes: >
+  Mock mode runs fully offline: get_embeddings() -> DeterministicFakeEmbedding,
+  get_chat_model() -> a local model that answers from the retrieved context.
+  Switch to Real LLM mode (sidebar) to use OpenAI - needs OPENAI_API_KEY.
+
+tasks:
+  - id: 1
+    title: Load the PDF
+    prompt: |
+      Load the bundled knowledge base (`SAMPLE_PDF` is its path) with LangChain's
+      PDF loader, then print the number of pages and the first page's metadata.
+    hints:
+      - "The loader is in `langchain_community.document_loaders`."
+      - "Its class name starts with `PyPDF...`."
+      - "`.load()` returns a list of `Document` objects, one per page."
+    starter: |
+      # Task 1 - load the PDF (SAMPLE_PDF is provided for you)
+      # TODO: from langchain_community.document_loaders import ...
+      # TODO: loader = ...
+      # TODO: documents = ...
+      print("SAMPLE_PDF =", SAMPLE_PDF)
+    solution: |
+      from langchain_community.document_loaders import PyPDFLoader
+
+      loader = PyPDFLoader(SAMPLE_PDF)
+      documents = loader.load()
+
+      print("Number of pages:", len(documents))
+      print("First page metadata:", documents[0].metadata)
+      print(documents[0].page_content[:200])
+    checks:
+      - {id: import,  points: 3, pattern: "from\\s+langchain_community\\.document_loaders\\s+import\\s+PyPDFLoader", desc: "imports PyPDFLoader"}
+      - {id: create,  points: 3, pattern: "PyPDFLoader\\s*\\(\\s*SAMPLE_PDF", desc: "loads SAMPLE_PDF"}
+      - {id: load,    points: 2, pattern: "\\.load\\s*\\(\\s*\\)", desc: "calls .load()"}
+      - {id: inspect, points: 2, pattern: "len\\s*\\(\\s*documents", desc: "prints the page count"}
+
+  - id: 2
+    title: Chunk the document
+    prompt: |
+      Split `documents` into overlapping chunks (**chunk_size=1000**,
+      **chunk_overlap=200**) and print how many chunks you got.
+    hints:
+      - "Import `RecursiveCharacterTextSplitter` from `langchain_text_splitters`."
+      - "Pass `chunk_size=` and `chunk_overlap=` to the constructor."
+      - "`splitter.split_documents(documents)` returns the list."
+    starter: |
+      # Task 2 - chunk (uses `documents` from Task 1)
+      # TODO: import RecursiveCharacterTextSplitter
+      chunk_size = 1000
+      chunk_overlap = 200
+      # TODO: splitter = ...
+      # TODO: chunks = ...
+      # TODO: print(len(chunks))
+    solution: |
+      from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+      chunk_size = 1000
+      chunk_overlap = 200
+      splitter = RecursiveCharacterTextSplitter(
+          chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+      )
+      chunks = splitter.split_documents(documents)
+      print("Number of chunks:", len(chunks))
+    checks:
+      - {id: import, points: 3, pattern: "import\\s+RecursiveCharacterTextSplitter", desc: "imports the splitter"}
+      - {id: build,  points: 4, pattern: "RecursiveCharacterTextSplitter\\s*\\([\\s\\S]*chunk_size", desc: "creates it with chunk_size"}
+      - {id: split,  points: 3, pattern: "split_documents\\s*\\(\\s*documents", desc: "splits `documents`"}
+
+  - id: 3
+    title: Embeddings + vector store
+    prompt: |
+      Embed the chunks and put them in a vector store, then run a similarity
+      search. Use the sandbox helper `get_embeddings(MODE)` so it works in both
+      Mock and Real mode. Use `make_vectorstore(chunks, embeddings)` (in-memory
+      Chroma).
+    hints:
+      - "`embeddings = get_embeddings(MODE)` — fake vectors in Mock, OpenAI in Real."
+      - "`vectorstore = make_vectorstore(chunks, embeddings)`."
+      - "`vectorstore.similarity_search(query, k=3)` returns the top matches."
+    starter: |
+      # Task 3 - embeddings + vector store (uses `chunks` from Task 2)
+      embeddings = None      # TODO: get_embeddings(MODE)
+      vectorstore = None     # TODO: make_vectorstore(chunks, embeddings)
+      query = "How many casual leave days are provided each year?"
+      # TODO: results = vectorstore.similarity_search(query, k=3); print them
+    solution: |
+      embeddings = get_embeddings(MODE)
+      vectorstore = make_vectorstore(chunks, embeddings)
+
+      query = "How many casual leave days are provided each year?"
+      results = vectorstore.similarity_search(query, k=3)
+      for i, doc in enumerate(results):
+          print(f"--- match {i + 1} (page {doc.metadata.get('page', '?')}) ---")
+          print(doc.page_content[:200])
+    checks:
+      - {id: embed,  points: 4, pattern: "get_embeddings\\s*\\(\\s*MODE", desc: "get_embeddings(MODE)"}
+      - {id: store,  points: 4, pattern: "make_vectorstore\\s*\\(\\s*chunks", desc: "make_vectorstore(chunks, embeddings)"}
+      - {id: search, points: 2, pattern: "similarity_search\\s*\\([^)]*k\\s*=\\s*3", desc: "similarity_search(query, k=3)"}
+
+  - id: 4
+    title: Grounded RAG answer
+    prompt: |
+      Build a retriever (**k=3**) and a model with `get_chat_model(MODE)`. Write a
+      prompt that answers **only** from the retrieved context and, if the answer
+      is missing, replies exactly:
+      `I could not find the answer in the provided document.`
+      Then answer one question and print the answer + source pages.
+    hints:
+      - "`retriever = vectorstore.as_retriever(search_kwargs={\"k\": 3})`."
+      - "`llm = get_chat_model(MODE)`  and  `ChatPromptTemplate.from_template(...)` with `{context}` / `{question}`."
+      - "`context = \"\\n\\n\".join(d.page_content for d in docs)`; then `llm.invoke(prompt.format_messages(...))`."
+    starter: |
+      # Task 4 - grounded answer (uses `vectorstore` from Task 3)
+      from langchain_core.prompts import ChatPromptTemplate
+      retriever = None   # TODO: vectorstore.as_retriever(search_kwargs={"k": 3})
+      llm = None          # TODO: get_chat_model(MODE)
+      prompt = None       # TODO: ChatPromptTemplate.from_template(""" ... {context} ... {question} ... """)
+      question = "What is the standard notice period for regular full-time employees?"
+      # TODO: docs = retriever.invoke(question); build context; resp = llm.invoke(...)
+      # TODO: print(resp.content) and sorted({d.metadata.get("page", "?") for d in docs})
+    solution: |
+      from langchain_core.prompts import ChatPromptTemplate
+
+      retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+      llm = get_chat_model(MODE)
+
+      prompt = ChatPromptTemplate.from_template(
+          """Answer the question using ONLY the context below. Do not use outside knowledge.
+      If the answer is not in the context, reply exactly:
+      "I could not find the answer in the provided document."
+
+      Context:
+      {context}
+
+      Question:
+      {question}
+
+      Answer:"""
+      )
+
+      question = "What is the standard notice period for regular full-time employees?"
+      docs = retriever.invoke(question)
+      context = "\n\n".join(d.page_content for d in docs)
+      resp = llm.invoke(prompt.format_messages(context=context, question=question))
+
+      print("Answer:", resp.content)
+      print("Pages:", sorted({d.metadata.get("page", "?") for d in docs}))
+    checks:
+      - {id: retriever, points: 3, pattern: "as_retriever\\s*\\(", desc: "creates a retriever"}
+      - {id: k3,        points: 2, pattern: "[\"']?k[\"']?\\s*[:=]\\s*3", desc: "k = 3"}
+      - {id: model,     points: 3, pattern: "get_chat_model\\s*\\(\\s*MODE", desc: "get_chat_model(MODE)"}
+      - {id: grounding, points: 3, pattern: "could not find the answer in the provided document", desc: "exact refusal instruction in the prompt"}
+      - {id: invoke,    points: 2, pattern: "llm\\.invoke|chain\\.invoke", desc: "invokes the model"}
+
+  - id: 5
+    title: Interactive loop
+    prompt: |
+      Wrap Task 4's logic in `def answer(question):` returning `(text, pages)`,
+      then loop: read a question with `input()`, print the answer, stop on `exit`.
+      (Run feeds a couple of demo questions then `exit`.)
+    hints:
+      - "Reuse `retriever`, `llm`, `prompt` from Task 4 — don't rebuild them."
+      - "`while True:` → `q = input(...)` → `if q.lower() == 'exit': break`."
+      - "Return early-out `(text, pages)` from `answer()` and print both in the loop."
+    starter: |
+      # Task 5 - interactive loop (uses retriever/llm/prompt from Task 4)
+      def answer(question):
+          # TODO: retrieve, build context, invoke llm, return (text, pages)
+          ...
+
+      # TODO: while True: read input(), print answer(q), break on "exit"
+    solution: |
+      def answer(question):
+          docs = retriever.invoke(question)
+          context = "\n\n".join(d.page_content for d in docs)
+          resp = llm.invoke(prompt.format_messages(context=context, question=question))
+          pages = sorted({d.metadata.get("page", "?") for d in docs})
+          return resp.content.strip(), pages
+
+      while True:
+          q = input("Question> ").strip()
+          if not q:
+              continue
+          if q.lower() == "exit":
+              break
+          text, pages = answer(q)
+          print("A:", text)
+          print("pages:", pages)
+    checks:
+      - {id: func,  points: 3, pattern: "def\\s+answer\\s*\\([\\s\\S]*return", desc: "answer() that returns a result"}
+      - {id: loop,  points: 3, pattern: "while\\s+True", desc: "interactive while loop"}
+      - {id: exit,  points: 2, pattern: "==\\s*[\"']exit[\"']|lower\\(\\)", desc: "stops on 'exit'"}
+      - {id: reuse, points: 2, pattern: "retriever\\.invoke", desc: "reuses the retriever"}
