@@ -1,0 +1,15 @@
+# Default deploy — unpinned, pure-wheel only. NO langgraph here (it pulls
+# ormsgpack / a big transitive tree that overloads Streamlit Cloud's build).
+# Runs Lab 1 (RAG) and Lab 2 (Tool Calling) fully; Labs 3-5 tell you to install
+# requirements-full.txt (langgraph + ChromaDB + FastEmbed + MCP), which needs a
+# build toolchain — use it locally or in Docker.
+
+streamlit
+pyyaml
+openpyxl
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+langchain-anthropic
+pypdf

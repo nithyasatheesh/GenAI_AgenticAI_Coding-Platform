@@ -1,0 +1,283 @@
+lab_id: 04-multi-agent
+title: "4 · Multi-Agent (LangGraph)"
+mode_required: real
+requires:
+  - langgraph
+  - langchain_core
+notes: >
+  REAL multi-agent system. A supervisor LLM routes work between two specialist
+  ReAct sub-agents (researcher = kb_lookup, analyst = calculator), assembled as a
+  real LangGraph `StateGraph`. Requires OpenAI or Claude mode.
+
+overview: |
+  ## Problem
+
+  One agent with many tools gets confused on compound tasks. Split the work:
+  a **researcher** that only looks things up, an **analyst** that only does maths,
+  and a **supervisor** that decides who goes next.
+
+  ## Approach — supervisor + workers on a `StateGraph`
+
+  | # | Step | Piece |
+  |---|------|-------|
+  | 1 | Two worker sub-agents | `create_react_agent(llm, get_tools(["kb_lookup"]))` / `["calculator"]` |
+  | 2 | The supervisor's decision | `llm.with_structured_output(Route)` → `next ∈ {researcher, analyst, FINISH}` |
+  | 3 | Wire the graph | `StateGraph(MessagesState)` + conditional edges |
+  | 4 | Run the crew | `graph.invoke({"messages": [...]})` |
+  | 5 | Add a reviewer | third node that checks the analyst's number |
+
+  ```
+              ┌──────────── supervisor ◀────────────┐
+              ▼            ▲            ▲            │
+         researcher ──────┘       analyst ──────────┘
+              └────────────▶ FINISH ◀───────────────┘
+  ```
+
+  ## Before you start
+  Requires **OpenAI or Claude mode**.
+
+tasks:
+  - id: 1
+    title: Two specialist sub-agents
+    prompt: |
+      Build a **researcher** (only `kb_lookup`) and an **analyst** (only
+      `calculator`) with `create_react_agent`. Run each once on a task in its
+      speciality and print the last message.
+    hints:
+      - "`from langgraph.prebuilt import create_react_agent`"
+      - "`researcher = create_react_agent(get_chat_model(MODE), get_tools(['kb_lookup']))`"
+      - "`analyst = create_react_agent(get_chat_model(MODE), get_tools(['calculator']))`"
+    starter: |
+      # Task 1 — the two workers
+      from langgraph.prebuilt import create_react_agent
+      llm = get_chat_model(MODE)
+      # TODO: researcher = create_react_agent(llm, get_tools(["kb_lookup"]))
+      # TODO: analyst    = create_react_agent(llm, get_tools(["calculator"]))
+      r = None  # researcher.invoke({"messages":[{"role":"user","content":"notice period?"}]})
+      # TODO: print researcher answer, then analyst answer for "1234 * 9"
+    solution: |
+      from langgraph.prebuilt import create_react_agent
+      llm = get_chat_model(MODE)
+      researcher = create_react_agent(llm, get_tools(["kb_lookup"]))
+      analyst = create_react_agent(llm, get_tools(["calculator"]))
+      r = researcher.invoke({"messages": [{"role": "user",
+            "content": "What is the standard notice period?"}]})
+      print("RESEARCHER:", r["messages"][-1].content)
+      a = analyst.invoke({"messages": [{"role": "user", "content": "What is 1234 * 9?"}]})
+      print("ANALYST:", a["messages"][-1].content)
+    checks:
+      - {id: researcher, points: 4, pattern: "create_react_agent\\s*\\([^)]*get_tools\\s*\\(\\s*\\[\\s*[\"']kb_lookup", desc: "researcher = kb_lookup only"}
+      - {id: analyst,    points: 4, pattern: "create_react_agent\\s*\\([^)]*get_tools\\s*\\(\\s*\\[\\s*[\"']calculator", desc: "analyst = calculator only"}
+      - {id: run,        points: 2, pattern: "\\.invoke\\s*\\(", desc: "runs a sub-agent"}
+
+  - id: 2
+    title: The supervisor's decision
+    prompt: |
+      Build a router: an LLM with **structured output** that returns
+      `next ∈ {"researcher", "analyst", "FINISH"}`. Test it on a couple of states.
+    hints:
+      - "`from pydantic import BaseModel` ; `from typing import Literal`"
+      - "`class Route(BaseModel): next: Literal['researcher','analyst','FINISH']`"
+      - "`router = get_chat_model(MODE).with_structured_output(Route)`"
+      - "Give it a system line describing each worker, then the conversation so far."
+    starter: |
+      # Task 2 — supervisor decision
+      from pydantic import BaseModel
+      from typing import Literal
+
+      class Route(BaseModel):
+          next: Literal["researcher", "analyst", "FINISH"]
+
+      # TODO: router = get_chat_model(MODE).with_structured_output(Route)
+      SUP = ("You manage a researcher (looks up HR facts) and an analyst (does maths). "
+             "Pick who acts next, or FINISH when the user's question is fully answered.")
+      # TODO: print(router.invoke(SUP + "\nUser: how many sick days, times 4?"))
+    solution: |
+      from pydantic import BaseModel
+      from typing import Literal
+
+      class Route(BaseModel):
+          next: Literal["researcher", "analyst", "FINISH"]
+
+      router = get_chat_model(MODE).with_structured_output(Route)
+      SUP = ("You manage a researcher (looks up HR facts) and an analyst (does maths). "
+             "Pick who acts next, or FINISH when the question is fully answered.")
+      print(router.invoke(SUP + "\nUser: how many sick days are there, times 4?"))
+      print(router.invoke(SUP + "\nUser: how many sick days? \nresearcher: 10 days. \nanalyst: 40."))
+    checks:
+      - {id: model,  points: 4, pattern: "class\\s+Route\\s*\\(\\s*BaseModel", desc: "defines the Route schema"}
+      - {id: struct, points: 4, pattern: "with_structured_output\\s*\\(\\s*Route", desc: "with_structured_output(Route)"}
+      - {id: call,   points: 2, pattern: "router\\.invoke\\s*\\(", desc: "calls the router"}
+
+  - id: 3
+    title: Wire the graph
+    prompt: |
+      Assemble a `StateGraph(MessagesState)` with nodes `supervisor`,
+      `researcher`, `analyst`. The supervisor routes with `Route`; workers append
+      their reply and go back to the supervisor; `FINISH` → `END`.
+    hints:
+      - "`from langgraph.graph import StateGraph, START, END, MessagesState`"
+      - "Worker node: `msg = researcher.invoke(state)['messages'][-1]` → `return {'messages': [msg]}`"
+      - "Supervisor node returns `{'next': router.invoke(...).next}` (add `next` to a custom state, or stash on the last message)."
+      - "`add_conditional_edges('supervisor', lambda s: s['next'], {'researcher':'researcher','analyst':'analyst','FINISH':END})`"
+    starter: |
+      # Task 3 — the supervisor graph  (uses researcher, analyst, Route/router from Tasks 1-2)
+      from typing import Annotated, Literal, TypedDict
+      from langgraph.graph import StateGraph, START, END
+      from langgraph.graph.message import add_messages
+
+      class S(TypedDict):
+          messages: Annotated[list, add_messages]
+          next: str
+
+      def supervisor(state):
+          convo = "\n".join(f"{m.type}: {m.content}" for m in state["messages"])
+          nxt = router.invoke(SUP + "\n" + convo).next
+          return {"next": nxt}
+
+      def researcher_node(state):
+          out = researcher.invoke({"messages": state["messages"]})
+          return {"messages": [out["messages"][-1]]}
+
+      # TODO: analyst_node like researcher_node
+      # TODO: build StateGraph(S): add 3 nodes, START->supervisor,
+      #       add_conditional_edges("supervisor", lambda s: s["next"], {...}),
+      #       researcher->supervisor, analyst->supervisor, compile()
+    solution: |
+      from typing import Annotated, TypedDict
+      from langgraph.graph import StateGraph, START, END
+      from langgraph.graph.message import add_messages
+
+      class S(TypedDict):
+          messages: Annotated[list, add_messages]
+          next: str
+
+      def supervisor(state):
+          convo = "\n".join(f"{m.type}: {m.content}" for m in state["messages"])
+          return {"next": router.invoke(SUP + "\n" + convo).next}
+
+      def researcher_node(state):
+          out = researcher.invoke({"messages": state["messages"]})
+          return {"messages": [out["messages"][-1]]}
+
+      def analyst_node(state):
+          out = analyst.invoke({"messages": state["messages"]})
+          return {"messages": [out["messages"][-1]]}
+
+      g = StateGraph(S)
+      g.add_node("supervisor", supervisor)
+      g.add_node("researcher", researcher_node)
+      g.add_node("analyst", analyst_node)
+      g.add_edge(START, "supervisor")
+      g.add_conditional_edges("supervisor", lambda s: s["next"],
+                              {"researcher": "researcher", "analyst": "analyst", "FINISH": END})
+      g.add_edge("researcher", "supervisor")
+      g.add_edge("analyst", "supervisor")
+      crew = g.compile()
+      print(crew.get_graph().draw_ascii())
+    checks:
+      - {id: graph,  points: 3, pattern: "StateGraph\\s*\\(", desc: "builds a StateGraph"}
+      - {id: nodes,  points: 3, pattern: "add_node\\s*\\(\\s*[\"']researcher[\"'][\\s\\S]*add_node\\s*\\(\\s*[\"']analyst[\"']", desc: "adds researcher + analyst nodes"}
+      - {id: route,  points: 2, pattern: "add_conditional_edges\\s*\\(\\s*[\"']supervisor", desc: "supervisor routes conditionally"}
+      - {id: back,   points: 2, pattern: "add_edge\\s*\\(\\s*[\"']researcher[\"']\\s*,\\s*[\"']supervisor", desc: "workers loop back to supervisor"}
+
+  - id: 4
+    title: Run the crew
+    prompt: |
+      Invoke the compiled graph on a compound task that needs a lookup **and**
+      maths (set a `recursion_limit` so it can't loop forever). Print the trace.
+    hints:
+      - "`crew.invoke({'messages': [{'role':'user','content': q}]}, {'recursion_limit': 12})`"
+      - "`for m in result['messages']: m.pretty_print()`"
+    starter: |
+      # Task 4 — run it
+      q = "How many earned leave days do we get, and what is that number squared?"
+      # TODO: result = crew.invoke({"messages": [{"role":"user","content": q}]},
+      #                            {"recursion_limit": 12})
+      # TODO: print every message
+    solution: |
+      q = "How many earned leave days do we get, and what is that number squared?"
+      result = crew.invoke({"messages": [{"role": "user", "content": q}]},
+                           {"recursion_limit": 12})
+      for m in result["messages"]:
+          m.pretty_print()
+    checks:
+      - {id: invoke, points: 6, pattern: "crew\\.invoke\\s*\\(", desc: "invokes the compiled crew"}
+      - {id: limit,  points: 4, pattern: "recursion_limit", desc: "sets a recursion_limit"}
+
+  - id: 5
+    title: Add a reviewer
+    prompt: |
+      Add a third worker **reviewer** (uses `calculator` to re-check the
+      analyst's number) and let the supervisor route to it. Update `Route` to
+      include `"reviewer"`, add the node + edges, and run again.
+    hints:
+      - "`Literal['researcher','analyst','reviewer','FINISH']` — rebuild `router`."
+      - "reviewer_node mirrors analyst_node but with a 'double-check the last number' instruction prepended."
+      - "Add the node, add it to the conditional-edges dict, and `add_edge('reviewer','supervisor')`."
+    starter: |
+      # Task 5 — reviewer
+      from typing import Literal
+      from pydantic import BaseModel
+      from langchain_core.messages import HumanMessage
+
+      class Route2(BaseModel):
+          next: Literal["researcher", "analyst", "reviewer", "FINISH"]
+      router = get_chat_model(MODE).with_structured_output(Route2)
+
+      reviewer = analyst  # same tools (calculator)
+      def reviewer_node(state):
+          msgs = state["messages"] + [HumanMessage("Reviewer: re-check the last number with the calculator.")]
+          out = reviewer.invoke({"messages": msgs})
+          return {"messages": [out["messages"][-1]]}
+
+      # TODO: g.add_node("reviewer", reviewer_node)
+      # TODO: extend the conditional-edges map with "reviewer": "reviewer"
+      # TODO: g.add_edge("reviewer", "supervisor") ; crew2 = g.compile() ; crew2.invoke(...)
+    solution: |
+      from typing import Annotated, Literal, TypedDict
+      from pydantic import BaseModel
+      from langchain_core.messages import HumanMessage
+      from langgraph.graph import StateGraph, START, END
+      from langgraph.graph.message import add_messages
+
+      class Route2(BaseModel):
+          next: Literal["researcher", "analyst", "reviewer", "FINISH"]
+      router = get_chat_model(MODE).with_structured_output(Route2)
+
+      class S2(TypedDict):
+          messages: Annotated[list, add_messages]
+          next: str
+
+      def supervisor(state):
+          convo = "\n".join(f"{m.type}: {m.content}" for m in state["messages"])
+          return {"next": router.invoke(SUP + " There is also a reviewer that re-checks numbers.\n" + convo).next}
+
+      def worker(agent, prefix=None):
+          def node(state):
+              msgs = list(state["messages"])
+              if prefix:
+                  msgs.append(HumanMessage(prefix))
+              out = agent.invoke({"messages": msgs})
+              return {"messages": [out["messages"][-1]]}
+          return node
+
+      g = StateGraph(S2)
+      g.add_node("supervisor", supervisor)
+      g.add_node("researcher", worker(researcher))
+      g.add_node("analyst", worker(analyst))
+      g.add_node("reviewer", worker(analyst, "Reviewer: re-check the last number with the calculator."))
+      g.add_edge(START, "supervisor")
+      g.add_conditional_edges("supervisor", lambda s: s["next"], {
+          "researcher": "researcher", "analyst": "analyst",
+          "reviewer": "reviewer", "FINISH": END})
+      for w in ("researcher", "analyst", "reviewer"):
+          g.add_edge(w, "supervisor")
+      crew2 = g.compile()
+      q = "How many earned leave days do we get, and what is that number squared?"
+      out = crew2.invoke({"messages": [{"role": "user", "content": q}]}, {"recursion_limit": 16})
+      print(out["messages"][-1].content)
+    checks:
+      - {id: route,  points: 4, pattern: "Literal\\[[^\\]]*reviewer", desc: "adds 'reviewer' to the router schema"}
+      - {id: node,   points: 4, pattern: "add_node\\s*\\(\\s*[\"']reviewer[\"']", desc: "adds the reviewer node"}
+      - {id: edge,   points: 2, pattern: "add_edge\\s*\\(\\s*[\"']reviewer[\"']\\s*,\\s*[\"']supervisor|for\\s+w\\s+in[\\s\\S]{0,60}reviewer[\\s\\S]{0,80}add_edge\\s*\\(\\s*w\\s*,\\s*[\"']supervisor", desc: "reviewer loops back to supervisor"}
