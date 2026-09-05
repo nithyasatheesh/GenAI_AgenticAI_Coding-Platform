@@ -1,0 +1,198 @@
+lab_id: 02-tool-calling
+title: "2 · Tool Calling"
+mode_required: real          # a real tool-calling LLM is needed; Mock can't emit tool calls
+requires:
+  - langchain_core
+notes: >
+  REAL tool calling. `get_tools()` returns genuine LangChain `@tool` objects
+  (calculator, word_count, kb_lookup). You bind them to a real model
+  (OpenAI/Claude), the model decides which to call, YOUR code executes the tool
+  and feeds the result back. Mock mode cannot do this — switch to OpenAI or Claude.
+
+overview: |
+  ## Problem
+
+  An LLM can't reliably do arithmetic or look things up. **Tool calling** fixes
+  that: you give the model a set of functions, it returns a structured request to
+  call one, *your code runs it*, and the result goes back to the model.
+
+  ## Approach
+
+  | # | Step | Piece |
+  |---|------|-------|
+  | 1 | Inspect the real tools | `get_tools()` → list of `@tool` objects |
+  | 2 | Bind tools + one call | `llm.bind_tools(tools).invoke(...)` → `.tool_calls` |
+  | 3 | Execute + feed back | `tool.invoke(args)` → `ToolMessage` → re-invoke |
+  | 4 | The tool loop | `while resp.tool_calls: …` |
+  | 5 | Answer an HR question with `kb_lookup` | tool calling + RAG |
+
+  ```
+  question ─▶ llm.bind_tools ─▶ tool_calls ─▶ YOUR code runs tool ─▶ ToolMessage ─▶ llm ─▶ answer
+  ```
+
+  ## Before you start
+  This lab **requires OpenAI or Claude mode** (real tool-calling model). Set
+  `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` and pick that mode in the sidebar.
+
+tasks:
+  - id: 1
+    title: Inspect the tools
+    prompt: |
+      `get_tools()` returns real LangChain tools. Print each tool's **name**,
+      **description**, and **argument schema**.
+    hints:
+      - "`tools = get_tools()` — a list of `StructuredTool` objects."
+      - "Each has `.name`, `.description`, and `.args` (a dict of the schema)."
+      - "`for t in tools: print(t.name, t.args)`"
+    starter: |
+      # Task 1 — inspect the real tools
+      tools = get_tools()
+      # TODO: print name, description and .args for each tool
+    solution: |
+      tools = get_tools()
+      for t in tools:
+          print(f"{t.name}: {t.description}")
+          print("  args:", t.args)
+    checks:
+      - {id: get,   points: 3, pattern: "get_tools\\s*\\(\\s*\\)", desc: "calls get_tools()"}
+      - {id: name,  points: 3, pattern: "\\.name", desc: "reads each tool's .name"}
+      - {id: args,  points: 4, pattern: "\\.args|\\.description", desc: "reads the schema / description"}
+
+  - id: 2
+    title: Bind tools & make one call
+    prompt: |
+      Bind the tools to a real model and ask it a question that needs the
+      calculator. Print `response.tool_calls` — the model's structured request.
+    hints:
+      - "`llm = get_chat_model(MODE)` then `llm_t = llm.bind_tools(tools)`."
+      - "`resp = llm_t.invoke('What is 128 * 47 + 9?')`"
+      - "`resp.tool_calls` is a list of `{name, args, id}` dicts."
+    starter: |
+      # Task 2 — bind tools, one call  (uses `tools` from Task 1)
+      llm = get_chat_model(MODE)
+      # TODO: llm_with_tools = llm.bind_tools(tools)
+      # TODO: resp = llm_with_tools.invoke("What is 128 * 47 + 9?")
+      # TODO: print(resp.tool_calls)
+    solution: |
+      llm = get_chat_model(MODE)
+      llm_with_tools = llm.bind_tools(tools)
+      resp = llm_with_tools.invoke("What is 128 * 47 + 9?")
+      print("tool_calls:", resp.tool_calls)
+      print("content:", resp.content)
+    checks:
+      - {id: bind,   points: 4, pattern: "bind_tools\\s*\\(\\s*tools", desc: "llm.bind_tools(tools)"}
+      - {id: invoke, points: 3, pattern: "\\.invoke\\s*\\(", desc: "invokes the bound model"}
+      - {id: tc,     points: 3, pattern: "tool_calls", desc: "inspects resp.tool_calls"}
+
+  - id: 3
+    title: Execute the call & feed it back
+    prompt: |
+      Run the tool the model asked for, wrap the result in a `ToolMessage`, and
+      send the conversation back so the model can produce the final answer.
+    hints:
+      - "`from langchain_core.messages import HumanMessage, ToolMessage`"
+      - "Look up the tool by name: `by_name = {t.name: t for t in tools}`."
+      - "`out = by_name[tc['name']].invoke(tc['args'])` → `ToolMessage(content=str(out), tool_call_id=tc['id'])`"
+      - "`final = llm_with_tools.invoke([HumanMessage(q), resp, tool_msg])`"
+    starter: |
+      # Task 3 — execute + feed back  (uses llm_with_tools, resp from Task 2)
+      from langchain_core.messages import HumanMessage, ToolMessage
+      q = "What is 128 * 47 + 9?"
+      by_name = {t.name: t for t in tools}
+      # TODO: for tc in resp.tool_calls: run the tool, build a ToolMessage
+      # TODO: final = llm_with_tools.invoke([HumanMessage(q), resp, *tool_msgs])
+      # TODO: print(final.content)
+    solution: |
+      from langchain_core.messages import HumanMessage, ToolMessage
+      q = "What is 128 * 47 + 9?"
+      by_name = {t.name: t for t in tools}
+      tool_msgs = []
+      for tc in resp.tool_calls:
+          out = by_name[tc["name"]].invoke(tc["args"])
+          tool_msgs.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
+          print(f"ran {tc['name']}({tc['args']}) -> {out}")
+      final = llm_with_tools.invoke([HumanMessage(q), resp, *tool_msgs])
+      print("ANSWER:", final.content)
+    checks:
+      - {id: toolmsg, points: 4, pattern: "ToolMessage\\s*\\(", desc: "builds a ToolMessage"}
+      - {id: run,     points: 3, pattern: "by_name\\[[^\\]]+\\]\\.invoke|\\.invoke\\s*\\(\\s*tc\\[", desc: "executes the requested tool"}
+      - {id: back,    points: 3, pattern: "invoke\\s*\\(\\s*\\[", desc: "sends messages back to the model"}
+
+  - id: 4
+    title: The tool loop
+    prompt: |
+      Wrap Tasks 2–3 into `run_with_tools(question)` that loops until the model
+      stops requesting tools, then returns the final text.
+    hints:
+      - "Keep a `messages` list starting with `HumanMessage(question)`."
+      - "`while True:` → `resp = llm_with_tools.invoke(messages)`; append `resp`."
+      - "If `not resp.tool_calls`: `return resp.content`. Else run each and append `ToolMessage`s."
+    starter: |
+      # Task 4 — reusable tool loop
+      from langchain_core.messages import HumanMessage, ToolMessage
+      def run_with_tools(question, max_steps=5):
+          llm_with_tools = get_chat_model(MODE).bind_tools(get_tools())
+          by_name = {t.name: t for t in get_tools()}
+          messages = [HumanMessage(question)]
+          # TODO: loop: invoke, if no tool_calls return content, else run tools + append
+          ...
+
+      print(run_with_tools("How many words are in 'the quick brown fox jumps'? Then multiply that by 10."))
+    solution: |
+      from langchain_core.messages import HumanMessage, ToolMessage
+      def run_with_tools(question, max_steps=5):
+          tools = get_tools()
+          llm_with_tools = get_chat_model(MODE).bind_tools(tools)
+          by_name = {t.name: t for t in tools}
+          messages = [HumanMessage(question)]
+          for _ in range(max_steps):
+              resp = llm_with_tools.invoke(messages)
+              messages.append(resp)
+              if not resp.tool_calls:
+                  return resp.content
+              for tc in resp.tool_calls:
+                  out = by_name[tc["name"]].invoke(tc["args"])
+                  print(f"  · {tc['name']}({tc['args']}) -> {out}")
+                  messages.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
+          return "(hit max_steps)"
+
+      print(run_with_tools("How many words are in 'the quick brown fox jumps'? Then multiply that by 10."))
+    checks:
+      - {id: fn,   points: 3, pattern: "def\\s+run_with_tools\\s*\\(", desc: "defines run_with_tools()"}
+      - {id: loop, points: 3, pattern: "for\\s+_\\s+in\\s+range|while\\s+True", desc: "loops"}
+      - {id: stop, points: 2, pattern: "not\\s+resp\\.tool_calls|if\\s+not\\s+.*tool_calls", desc: "stops when no tool calls"}
+      - {id: ret,  points: 2, pattern: "return\\s+resp\\.content", desc: "returns the final text"}
+
+  - id: 5
+    title: Tool calling + RAG
+    prompt: |
+      Give the model **only** the `kb_lookup` tool and ask an HR question. The
+      model must call `kb_lookup`, read the passages, and answer from them.
+    hints:
+      - "`get_tools(['kb_lookup'])` returns just that tool."
+      - "Reuse your `run_with_tools` shape, or bind + one manual round-trip."
+      - "Ask e.g. 'What is the standard notice period for full-time employees?'"
+    starter: |
+      # Task 5 — answer an HR question via the kb_lookup tool
+      from langchain_core.messages import HumanMessage, ToolMessage
+      q = "What is the standard notice period for regular full-time employees?"
+      # TODO: kb_tools = get_tools(["kb_lookup"]) ; by_name = {t.name: t for t in kb_tools}
+      # TODO: llm_kb = get_chat_model(MODE).bind_tools(kb_tools)
+      # TODO: one round-trip: invoke, run kb_lookup, feed a ToolMessage back, print the answer
+    solution: |
+      from langchain_core.messages import HumanMessage, ToolMessage
+      kb_tools = get_tools(["kb_lookup"])
+      by_name = {t.name: t for t in kb_tools}
+      llm_kb = get_chat_model(MODE).bind_tools(kb_tools)
+      q = "What is the standard notice period for regular full-time employees?"
+      resp = llm_kb.invoke([HumanMessage(q)])
+      msgs = [HumanMessage(q), resp]
+      for tc in resp.tool_calls:
+          out = by_name[tc["name"]].invoke(tc["args"])
+          print("kb_lookup ->", out[:200], "...")
+          msgs.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
+      print("ANSWER:", llm_kb.invoke(msgs).content)
+    checks:
+      - {id: kbtool, points: 4, pattern: "get_tools\\s*\\(\\s*\\[\\s*[\"']kb_lookup", desc: "uses only the kb_lookup tool"}
+      - {id: bind,   points: 3, pattern: "bind_tools\\s*\\(", desc: "binds it to the model"}
+      - {id: back,   points: 3, pattern: "ToolMessage\\s*\\(", desc: "feeds the passages back"}
