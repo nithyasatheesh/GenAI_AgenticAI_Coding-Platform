@@ -1,0 +1,15 @@
+# Unpinned on purpose: let Streamlit Cloud's installer pick whatever versions its
+# index actually has (LangChain 0.3.x and 1.x both work with this code).
+# Pure-wheel only — no chromadb / fastembed / onnxruntime / rust crates.
+# Heavier extras (ChromaDB, FastEmbed, MCP) are in requirements-full.txt.
+
+streamlit
+pyyaml
+openpyxl
+langchain-core
+langchain-community
+langchain-text-splitters
+langgraph
+langchain-openai
+langchain-anthropic
+pypdf
