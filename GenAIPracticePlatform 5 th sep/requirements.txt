@@ -1,0 +1,28 @@
+# DEFAULT deploy set — every package here has manylinux wheels, so Streamlit
+# Community Cloud installs it with NO compiler (verified: 91-package resolve,
+# exit 0, no onnxruntime / chroma-hnswlib / grpcio / rust crates).
+#
+# This runs Labs 1-4 for real: real Python exec, real LangChain + LangGraph,
+# real agents, and — in OpenAI mode — real OpenAI embeddings + a real
+# langchain-core vector store.
+#
+# The heavier "everything" extras (real ChromaDB, keyless FastEmbed embeddings,
+# the MCP lab) are in  requirements-full.txt  — use that locally or in Docker
+# where a build toolchain is available. The app degrades gracefully without them:
+#   * no chromadb  -> make_vectorstore() uses langchain-core InMemoryVectorStore
+#   * no fastembed -> keyless embeddings fall back (use OpenAI mode for real ones)
+#   * no mcp       -> the MCP lab's Run is blocked with a clear message (never faked)
+
+streamlit>=1.5,<2
+pyyaml>=6,<7
+openpyxl>=3,<4
+
+langchain-core>=1,<2
+langchain-community>=0.4,<1
+langchain-text-splitters>=1,<2
+langgraph>=1,<2
+
+langchain-openai>=1,<2
+langchain-anthropic>=1,<2
+
+pypdf>=6,<7
