@@ -1,0 +1,251 @@
+lab_id: 05-mcp
+title: "5 · MCP (Model Context Protocol)"
+requires:
+  - mcp
+  - langchain_mcp_adapters
+  - langchain_core
+notes: >
+  REAL MCP. Needs the `mcp` + `langchain-mcp-adapters` packages —
+  `pip install -r requirements-full.txt` (they are NOT in the default deploy set).
+  The bundled `mcp_server.py` is launched as a real subprocess and
+  `langchain-mcp-adapters` speaks the Model Context Protocol over stdio.
+  Tasks 1-3 need no API key; Tasks 4-5 add a real LLM.
+
+overview: |
+  ## Problem
+
+  MCP is a standard way for an app (the *host*) to connect to external tool
+  *servers* over JSON-RPC. Same tools, any client. Here you connect to a real
+  local MCP server and use its tools from LangChain.
+
+  ## Approach
+
+  | # | Step | Piece |
+  |---|------|-------|
+  | 1 | Connect + discover | `MultiServerMCPClient(mcp_stdio_config())` → `await client.get_tools()` |
+  | 2 | Call an MCP tool | `await add.ainvoke({"a": 2, "b": 3})` |
+  | 3 | Read an MCP resource | `await client.get_resources("sandbox")` |
+  | 4 | MCP tools + a model | `llm.bind_tools(mcp_tools)` — one round-trip |
+  | 5 | Agent over MCP | `create_react_agent(llm, mcp_tools)` |
+
+  ```
+  your code ─▶ MultiServerMCPClient ──stdio/JSON-RPC──▶ mcp_server.py (FastMCP)
+                     │                                        ├─ add, multiply
+                     └─ get_tools() → LangChain tools         └─ leave_allowance
+  ```
+
+  The server (`mcp_server.py`) exposes `add`, `multiply`, `leave_allowance`, and
+  a resource `policy://notice-period`.
+
+  ## Before you start
+  - Install `requirements-full.txt` (adds `mcp`, `langchain-mcp-adapters`). On the
+    default Streamlit-Cloud deploy these aren't present and Run is blocked with a
+    message — run this lab locally or in Docker.
+  - Tasks 1-3: no key. Tasks 4-5: **OpenAI or Claude mode**.
+
+tasks:
+  - id: 1
+    title: Connect & discover
+    prompt: |
+      Start the MCP client against the bundled server and print the **name** of
+      every tool it exposes.
+    hints:
+      - "`from langchain_mcp_adapters.client import MultiServerMCPClient`"
+      - "`client = MultiServerMCPClient(mcp_stdio_config())` — `mcp_stdio_config()` is provided."
+      - "`get_tools()` is async: wrap it in `async def` and `asyncio.run(...)`."
+    starter: |
+      # Task 1 — connect to the real MCP server
+      import asyncio
+
+      async def main():
+          # TODO: from langchain_mcp_adapters.client import MultiServerMCPClient
+          # TODO: client = MultiServerMCPClient(mcp_stdio_config())
+          # TODO: tools = await client.get_tools()
+          # TODO: print name / description / .args for each tool
+          ...
+
+      asyncio.run(main())
+    solution: |
+      import asyncio
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          for t in tools:
+              print(f"{t.name}: {t.description}  args={t.args}")
+
+      asyncio.run(main())
+    checks:
+      - {id: import, points: 3, pattern: "from\\s+langchain_mcp_adapters\\.client\\s+import\\s+MultiServerMCPClient", desc: "imports MultiServerMCPClient"}
+      - {id: cfg,    points: 3, pattern: "MultiServerMCPClient\\s*\\(\\s*mcp_stdio_config\\s*\\(\\s*\\)", desc: "uses mcp_stdio_config()"}
+      - {id: tools,  points: 4, pattern: "await\\s+client\\.get_tools\\s*\\(\\s*\\)", desc: "awaits client.get_tools()"}
+
+  - id: 2
+    title: Call an MCP tool
+    prompt: |
+      Find the `multiply` tool from the MCP server and call it with `a=6, b=7`.
+      Print the result.
+    hints:
+      - "`by_name = {t.name: t for t in tools}`"
+      - "MCP tools are async LangChain tools: `await by_name['multiply'].ainvoke({'a': 6, 'b': 7})`"
+    starter: |
+      # Task 2 — invoke an MCP tool
+      import asyncio
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          by_name = {t.name: t for t in tools}
+          # TODO: out = await by_name["multiply"].ainvoke({"a": 6, "b": 7})
+          # TODO: print(out)
+
+      asyncio.run(main())
+    solution: |
+      import asyncio
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          by_name = {t.name: t for t in await client.get_tools()}
+          out = await by_name["multiply"].ainvoke({"a": 6, "b": 7})
+          print("multiply(6, 7) =", out)
+          print("leave_allowance('earned') =",
+                await by_name["leave_allowance"].ainvoke({"kind": "earned"}))
+
+      asyncio.run(main())
+    checks:
+      - {id: pick,   points: 4, pattern: "by_name\\s*=\\s*\\{|\\[\\s*[\"']multiply", desc: "selects the multiply tool"}
+      - {id: invoke, points: 6, pattern: "\\.ainvoke\\s*\\(\\s*\\{", desc: "awaits .ainvoke({...})"}
+
+  - id: 3
+    title: Read an MCP resource
+    prompt: |
+      The server exposes the resource `policy://notice-period`. Fetch the
+      server's resources and print their contents.
+    hints:
+      - "`res = await client.get_resources('sandbox')`"
+      - "Each item has `.data` (or `.text`) — print it."
+    starter: |
+      # Task 3 — MCP resources
+      import asyncio
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          # TODO: res = await client.get_resources("sandbox")
+          # TODO: for r in res: print(getattr(r, "data", r))
+
+      asyncio.run(main())
+    solution: |
+      import asyncio
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          res = await client.get_resources("sandbox")
+          for r in res:
+              print(getattr(r, "data", getattr(r, "text", r)))
+
+      asyncio.run(main())
+    checks:
+      - {id: get,  points: 6, pattern: "get_resources\\s*\\(\\s*[\"']sandbox[\"']", desc: "awaits client.get_resources('sandbox')"}
+      - {id: show, points: 4, pattern: "for\\s+\\w+\\s+in\\s+res|print\\s*\\(", desc: "prints the resource content"}
+
+  - id: 4
+    title: MCP tools + a model
+    prompt: |
+      Bind the MCP tools to a real model and ask *"What is 19 times 21?"* — the
+      model should call the MCP `multiply` tool. Run one manual round-trip.
+      **(OpenAI/Claude mode.)**
+    needs_real: true
+    hints:
+      - "`llm = get_chat_model(MODE).bind_tools(mcp_tools)`"
+      - "`resp = await llm.ainvoke('What is 19 times 21?')` → `resp.tool_calls`"
+      - "Run the tool with `await by_name[tc['name']].ainvoke(tc['args'])`, wrap in `ToolMessage`, re-invoke."
+    starter: |
+      # Task 4 — model + MCP tools
+      import asyncio
+      from langchain_core.messages import HumanMessage, ToolMessage
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          by_name = {t.name: t for t in tools}
+          llm = get_chat_model(MODE).bind_tools(tools)
+          q = "What is 19 times 21?"
+          # TODO: resp = await llm.ainvoke([HumanMessage(q)])  ; print(resp.tool_calls)
+          # TODO: run each tool call (await .ainvoke), build ToolMessage, re-invoke, print answer
+
+      asyncio.run(main())
+    solution: |
+      import asyncio
+      from langchain_core.messages import HumanMessage, ToolMessage
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          by_name = {t.name: t for t in tools}
+          llm = get_chat_model(MODE).bind_tools(tools)
+          q = "What is 19 times 21?"
+          resp = await llm.ainvoke([HumanMessage(q)])
+          print("tool_calls:", resp.tool_calls)
+          msgs = [HumanMessage(q), resp]
+          for tc in resp.tool_calls:
+              out = await by_name[tc["name"]].ainvoke(tc["args"])
+              msgs.append(ToolMessage(content=str(out), tool_call_id=tc["id"]))
+          print("ANSWER:", (await llm.ainvoke(msgs)).content)
+
+      asyncio.run(main())
+    checks:
+      - {id: bind,   points: 4, pattern: "bind_tools\\s*\\(\\s*tools", desc: "binds the MCP tools"}
+      - {id: ainv,   points: 3, pattern: "await\\s+llm\\.ainvoke", desc: "awaits llm.ainvoke"}
+      - {id: back,   points: 3, pattern: "ToolMessage\\s*\\(", desc: "feeds the MCP result back"}
+
+  - id: 5
+    title: Agent over MCP
+    prompt: |
+      Give a `create_react_agent` the MCP tools and ask a compound question
+      *("What is 8 times 9, and how many sick leave days do we get?")*. Print the
+      final answer. **(OpenAI/Claude mode.)**
+    needs_real: true
+    hints:
+      - "`from langgraph.prebuilt import create_react_agent`"
+      - "`agent = create_react_agent(get_chat_model(MODE), mcp_tools)`"
+      - "`await agent.ainvoke({'messages': [{'role':'user','content': q}]})`"
+    starter: |
+      # Task 5 — ReAct agent over MCP tools
+      import asyncio
+      from langgraph.prebuilt import create_react_agent
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          # TODO: agent = create_react_agent(get_chat_model(MODE), tools)
+          q = "What is 8 times 9, and how many sick leave days do we get?"
+          # TODO: result = await agent.ainvoke({"messages": [{"role":"user","content": q}]})
+          # TODO: print(result["messages"][-1].content)
+
+      asyncio.run(main())
+    solution: |
+      import asyncio
+      from langgraph.prebuilt import create_react_agent
+      from langchain_mcp_adapters.client import MultiServerMCPClient
+
+      async def main():
+          client = MultiServerMCPClient(mcp_stdio_config())
+          tools = await client.get_tools()
+          agent = create_react_agent(get_chat_model(MODE), tools)
+          q = "What is 8 times 9, and how many sick leave days do we get?"
+          result = await agent.ainvoke({"messages": [{"role": "user", "content": q}]})
+          for m in result["messages"]:
+              m.pretty_print()
+
+      asyncio.run(main())
+    checks:
+      - {id: agent,  points: 5, pattern: "create_react_agent\\s*\\(\\s*get_chat_model\\s*\\(\\s*MODE\\s*\\)\\s*,\\s*tools", desc: "agent over the MCP tools"}
+      - {id: ainv,   points: 5, pattern: "await\\s+agent\\.ainvoke", desc: "awaits agent.ainvoke(...)"}
