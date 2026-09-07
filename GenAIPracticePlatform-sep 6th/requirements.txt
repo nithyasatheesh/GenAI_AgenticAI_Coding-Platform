@@ -1,35 +1,11 @@
-# ---------------------------------------------------------------------------
-# GenAI Practice Platform - Streamlit COMMUNITY Cloud deploy requirements
-#
-# Deliberately LEAN. The build log proves pip succeeds and THEN the Community
-# Cloud wrapper fails ("installer returned a non-zero exit code / Error during
-# processing dependencies") = the free-tier build ran out of memory/disk while
-# unpacking chromadb + onnxruntime + fastembed + langgraph together. Those are
-# NOT in this file.
-#
-# What still works on this file:
-#   - Lab 1 (RAG): full. Uses langchain-core InMemoryVectorStore instead of
-#     ChromaDB, and OpenAI embeddings (or the built-in DeterministicFakeEmbedding
-#     in Mock mode) instead of FastEmbed.
-#   - Lab 2 (Tool calling): full.
-#   - The whole graded UI + grader.py + Excel export.
-#   - Mock mode (no API key) and OpenAI / Claude real modes.
-#
-# Labs 3-5 (LangGraph agents, multi-agent, MCP) need the heavy stack: use
-# requirements-full.txt on a real machine / paid tier / container.
-# ---------------------------------------------------------------------------
-
 streamlit
 pyyaml
 openpyxl
-
 langchain-core
 langchain-community
 langchain-text-splitters
 langchain-openai
 langchain-anthropic
-
 openai
 anthropic
-
 pypdf
