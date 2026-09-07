@@ -1,0 +1,4 @@
+# The default requirements.txt now already contains the FULL stack
+# (ChromaDB + LangGraph + MCP + FastEmbed). This file is kept only as an alias
+# so older docs / scripts that referenced it keep working.
+-r requirements.txt

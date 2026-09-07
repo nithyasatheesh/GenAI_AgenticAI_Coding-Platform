@@ -1,0 +1,17 @@
+# FALLBACK — use ONLY if the full requirements.txt still fails to build on
+# Streamlit Cloud (rename this file to requirements.txt). Drops the heavy native
+# wheels: chromadb, fastembed, langgraph, mcp. Lab 1 (RAG) + the graded UI work
+# fully — RAG uses langchain-core's InMemoryVectorStore instead of ChromaDB and
+# DeterministicFakeEmbedding (or OpenAI embeddings) instead of FastEmbed. Labs
+# 3-5 (agents / MCP) will say "add langgraph / mcp" on Run.
+streamlit
+pyyaml
+openpyxl
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+langchain-anthropic
+openai
+anthropic
+pypdf
