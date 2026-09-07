@@ -1,7 +1,0 @@
-# ESCALATION 2 — the absolute minimum to BOOT the app (no lab will Run).
-# Rename to requirements.txt. If THIS still gives "Error installing requirements",
-# the problem is NOT the packages — it's the repo (files not pushed, wrong branch,
-# or streamlit_app.py is in a subfolder instead of the repo root). Check the repo
-# on github.com in a browser: streamlit_app.py must be visible at the top level.
-streamlit
-pyyaml
