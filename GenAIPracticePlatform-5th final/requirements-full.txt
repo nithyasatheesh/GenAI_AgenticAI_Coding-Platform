@@ -1,0 +1,21 @@
+# FULL stack — default requirements.txt PLUS langgraph (Labs 3-5), real ChromaDB,
+# keyless FastEmbed embeddings, and the MCP lab. These pull native/Rust deps
+# (ormsgpack, onnxruntime, chroma-hnswlib, py-rust-stemmers) that do NOT reliably
+# build on Streamlit Community Cloud. Use locally / in Docker / on a tier with a
+# compiler:  pip install -r requirements-full.txt
+
+-r requirements.txt
+
+# LangGraph agents (Labs 3, 4, and MCP tasks 4-5)
+langgraph
+
+# real vector DB
+chromadb
+langchain-chroma
+
+# real local embeddings, no API key
+fastembed
+
+# the MCP lab (Lab 5)
+mcp
+langchain-mcp-adapters
